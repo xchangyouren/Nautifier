@@ -1,17 +1,36 @@
 import os
 import sys
+import time
 import requests
 from datetime import datetime
 
-def get_exchange_rate():
-    url = "https://api.exchangerate-api.com/v4/latest/USD"
+def get_exchange_rate(base_currency):
+    url = f"https://api.exchangerate-api.com/v4/latest/{base_currency}"
     try:
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
         return data.get('rates', {}).get('CNY')
     except Exception as e:
-        print(f"Error fetching exchange rate: {e}")
+        print(f"Error fetching {base_currency} exchange rate: {e}")
+        return None
+
+def get_stock_price(symbol, api_key):
+    url = "https://apidojo-yahoo-finance-v1.p.rapidapi.com/stock/v2/get-summary"
+    querystring = {"symbol": symbol, "region": "US"}
+    headers = {
+        "x-rapidapi-key": api_key,
+        "x-rapidapi-host": "apidojo-yahoo-finance-v1.p.rapidapi.com"
+    }
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        response.raise_for_status()
+        data = response.json()
+        # Extract price. Structure varies, but usually price is in 'price' -> 'regularMarketPrice' -> 'fmt' or 'raw'
+        price_obj = data.get('price', {}).get('regularMarketPrice', {})
+        return price_obj.get('fmt') or price_obj.get('raw')
+    except Exception as e:
+        print(f"Error fetching stock price for {symbol}: {e}")
         return None
 
 def send_telegram_message(token, chat_id, message):
@@ -32,19 +51,46 @@ def send_telegram_message(token, chat_id, message):
 def main():
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    rapidapi_key = os.environ.get("RAPIDAPI_KEY")
 
     if not bot_token or not chat_id:
         print("Error: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables must be set.")
         sys.exit(1)
 
-    rate = get_exchange_rate()
-    if rate:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        message = f"💱 **USD to CNY Exchange Rate**\n📅 Date: {date_str}\n💰 Rate: 1 USD = {rate} CNY"
-        send_telegram_message(bot_token, chat_id, message)
+    # 1. Exchange Rates
+    usd_rate = get_exchange_rate("USD")
+    sgd_rate = get_exchange_rate("SGD")
+
+    # 2. Stock Prices
+    stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "NFLX", "BTC-USD", "GC=F"]
+    stock_data = []
+    if rapidapi_key:
+        for symbol in stocks:
+            price = get_stock_price(symbol, rapidapi_key)
+            if price:
+                stock_data.append(f"{symbol}: {price}")
+            else:
+                stock_data.append(f"{symbol}: N/A")
+            time.sleep(1) # Avoid rate limits
     else:
-        print("Failed to retrieve exchange rate.")
-        sys.exit(1)
+        stock_data = ["RapidAPI Key not provided. Skipping stocks."]
+
+    # 3. Construct Message
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    
+    message = f"📅 **Daily Financial Report** - {date_str}\n\n"
+    
+    message += "💱 **Exchange Rates (to CNY)**\n"
+    if usd_rate:
+        message += f"🇺🇸 USD: {usd_rate}\n"
+    if sgd_rate:
+        message += f"🇸🇬 SGD: {sgd_rate}\n"
+    
+    message += "\n📈 **Market Snapshot**\n"
+    for item in stock_data:
+        message += f"• {item}\n"
+
+    send_telegram_message(bot_token, chat_id, message)
 
 if __name__ == "__main__":
     main()

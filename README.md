@@ -26,6 +26,7 @@ To make the workflow run, you need to add the following secrets to your GitHub r
 4.  Add the following secrets:
     *   `TELEGRAM_BOT_TOKEN`: Your Telegram Bot API Token.
     *   `TELEGRAM_CHAT_ID`: The Chat ID where messages should be sent.
+    *   `RAPIDAPI_KEY`: Your RapidAPI Key for Yahoo Finance (optional, for stock prices).
 
 ## Usage
 
