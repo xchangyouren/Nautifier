@@ -1,6 +1,6 @@
 import os
 import sys
-import time
+
 import requests
 from datetime import datetime
 
@@ -15,23 +15,7 @@ def get_exchange_rate(base_currency):
         print(f"Error fetching {base_currency} exchange rate: {e}")
         return None
 
-def get_stock_price(symbol, api_key):
-    url = "https://apidojo-yahoo-finance-v1.p.rapidapi.com/stock/v2/get-summary"
-    querystring = {"symbol": symbol, "region": "US"}
-    headers = {
-        "x-rapidapi-key": api_key,
-        "x-rapidapi-host": "apidojo-yahoo-finance-v1.p.rapidapi.com"
-    }
-    try:
-        response = requests.get(url, headers=headers, params=querystring)
-        response.raise_for_status()
-        data = response.json()
-        # Extract price. Structure varies, but usually price is in 'price' -> 'regularMarketPrice' -> 'fmt' or 'raw'
-        price_obj = data.get('price', {}).get('regularMarketPrice', {})
-        return price_obj.get('fmt') or price_obj.get('raw')
-    except Exception as e:
-        print(f"Error fetching stock price for {symbol}: {e}")
-        return None
+
 
 def send_telegram_message(token, chat_id, message):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -65,13 +49,35 @@ def main():
     stocks = ["AAPL", "TSLA", "NVDA", "MSFT", "NFLX", "BTC-USD", "GC=F"]
     stock_data = []
     if rapidapi_key:
-        for symbol in stocks:
-            price = get_stock_price(symbol, rapidapi_key)
-            if price:
-                stock_data.append(f"{symbol}: {price}")
-            else:
-                stock_data.append(f"{symbol}: N/A")
-            time.sleep(1) # Avoid rate limits
+        try:
+            # Join symbols with comma for batch request
+            symbols_str = ",".join(stocks)
+            url = "https://apidojo-yahoo-finance-v1.p.rapidapi.com/market/v2/get-quotes"
+            querystring = {"region": "US", "symbols": symbols_str}
+            headers = {
+                "x-rapidapi-key": rapidapi_key,
+                "x-rapidapi-host": "apidojo-yahoo-finance-v1.p.rapidapi.com"
+            }
+            response = requests.get(url, headers=headers, params=querystring)
+            response.raise_for_status()
+            data = response.json()
+            
+            # The API returns a 'quoteResponse' object containing a 'result' list
+            results = data.get('quoteResponse', {}).get('result', [])
+            
+            # Create a map for easy lookup
+            price_map = {item['symbol']: item.get('regularMarketPrice') for item in results}
+            
+            for symbol in stocks:
+                price = price_map.get(symbol)
+                if price is not None:
+                    stock_data.append(f"{symbol}: {price}")
+                else:
+                    stock_data.append(f"{symbol}: N/A")
+                    
+        except Exception as e:
+            print(f"Error fetching stock prices: {e}")
+            stock_data = ["Error fetching stock data"]
     else:
         stock_data = ["RapidAPI Key not provided. Skipping stocks."]
 
